@@ -1,0 +1,34 @@
+# go-installation-playbook.yml
+---
+- name: Play- golang installation
+  hosts: linux
+  become: yes
+  tasks:
+
+    - name: "Create directory for go binaries"
+      file:
+        path: /usr/local/bin/
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+    - name: "Download the go into the /tmp directory"
+      get_url:
+        url: https://github.com/cloudflare/cfssl/releases/download/v1.6.4/cfssl_1.6.4_linux_arm64
+        dest: /tmp/cfssl
+        owner: root
+        group: root
+        mode: 0700
+        force: True
+    - name: "unarchive go to the directory"
+      command: mv /tmp/cfssl /usr/local/bin/
+     
+    - name: "Set permissions for go "
+      file:
+        path: /usr/local/bin/cfssl
+        state: file
+        owner: root
+        group: root
+        mode: 0700
+
+

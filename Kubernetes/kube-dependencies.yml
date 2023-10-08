@@ -1,0 +1,57 @@
+---
+#- hosts: "masters, workers"
+- hosts: all
+  become: yes
+  connection: ssh
+  vars: 
+    - repo_url: "https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64"
+    - repo_key: "https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg"
+    - version: "1.27.2"
+  tasks:
+    - name: disabling swap as it’s required for kubelet
+      shell: |
+              sudo swapoff -a
+              sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+    - name: Load br_netfilter module
+      shell: |
+              cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+              br_netfilter
+              EOF
+
+    - name: Configure iptables to see bridged traffic
+      shell: |
+              cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+              net.bridge.bridge-nf-call-ip6tables = 1
+              net.bridge.bridge-nf-call-iptables = 1
+              EOF
+
+    - name: Read values from all system directories
+      shell: sysctl --system
+
+    - name: installing containerd and settings its config. restart as well.
+      shell: |
+              sudo yum install -y yum-utils device-mapper-persistent-data lvm2
+              sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+              sudo yum update -y && yum install -y containerd.io
+              sudo mkdir -p /etc/containerd
+              sudo containerd config default > /etc/containerd/config.toml
+              sudo systemctl restart containerd
+              sudo systemctl enable containerd
+
+    - name: Create a kube repo file
+      file:
+        path: "/etc/yum.repos.d/kubernetes.repo"
+        state: "touch"
+
+    - name: add Kubernetes' YUM repository
+      yum_repository:
+        name: Kubernetes
+        description: Kubernetes YUM repository
+        baseurl: "{{ repo_url }}"
+        gpgkey:  "{{ repo_key }}"
+        gpgcheck: yes  
+
+    - name: install kubectl kubelet and kubeadm 
+      shell: |
+              sudo yum install -y kubelet-{{ version }} kubeadm-{{ version }} kubectl-{{ version }}
+     

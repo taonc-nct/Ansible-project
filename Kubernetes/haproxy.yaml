@@ -1,0 +1,94 @@
+---
+- hosts: lb
+  name: Setup load balancers
+  become: yes
+  tasks:
+    - name: Install haproxy
+      yum :
+        name:
+          - haproxy
+        state: present
+        update_cache: yes
+
+    - name: enable haproxy
+      shell: |
+              systemctl enable haproxy
+    
+    - name: set setsebool for haproxy
+      shell: |
+              setsebool -P haproxy_connect_any=1
+
+    - name: Configure haproxy
+      shell: |
+              cat >> /etc/haproxy/haproxy.cfg <<EOF
+
+              frontend kubernetes-frontend
+                bind *:6443
+                mode tcp
+                option tcplog
+                default_backend kubernetes-backend
+
+              backend kubernetes-backend  
+                option httpchk GET /healthz
+                http-check expect status 200
+                mode tcp
+                option ssl-hello-chk
+                balance roundrobin
+                  server vm1 172.16.240.128:6443 check fall 3 rise 2
+                  server vm2 172.16.240.129:6443 check fall 3 rise 2
+              EOF
+
+    - name: Restart haproxy
+      systemd:
+        name: haproxy
+        state: restarted
+        enabled: yes
+        daemon-reload: yes
+
+    # - name: Install keepalived
+    #   apt:
+    #     name:
+    #       - keepalived
+    #     state: present
+    #     update_cache: yes
+
+    # - name: Create keepalived.conf empty file
+    #   copy:
+    #     content: ""
+    #     dest: /etc/keepalived/keepalived.conf
+    #     force: yes
+
+    # - name: Create keepalived.conf
+    #   blockinfile:
+    #     path: /etc/keepalived/keepalived.conf
+    #     block: |
+    #       vrrp_script check_apiserver {
+    #         script "killall -0 haproxy"
+    #         interval 3
+    #         timeout 10
+    #       }
+
+    #       vrrp_instance VI_1 {
+    #           state MASTER
+    #           interface eth1
+    #           virtual_router_id 201
+    #           priority 200
+    #           advert_int 1
+    #           authentication {
+    #               auth_type PASS
+    #               auth_pass secret
+    #           }
+    #           virtual_ipaddress {
+    #               {{ cluster_vip }}/24
+    #           }
+    #           track_script {
+    #               check_apiserver
+    #           }
+    #       }
+
+    # - name: Restart keepalived
+    #   systemd:
+    #     name: keepalived
+    #     state: restarted
+    #     enabled: yes
+    #     daemon-reload: yes

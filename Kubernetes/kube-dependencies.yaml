@@ -12,6 +12,7 @@
       shell: |
               sudo swapoff -a
               sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
     - name: Load br_netfilter module
       shell: |
               cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
@@ -28,15 +29,18 @@
     - name: Read values from all system directories
       shell: sysctl --system
 
-    - name: installing containerd and settings its config. restart as well.
+    - name: installing containerd and settings its config.
       shell: |
               sudo yum install -y yum-utils device-mapper-persistent-data lvm2
               sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
               sudo yum update -y && yum install -y containerd.io
               sudo mkdir -p /etc/containerd
               sudo containerd config default > /etc/containerd/config.toml
-              sudo systemctl restart containerd
+
+    - name: restart and start containerd
+      shell: |
               sudo systemctl enable containerd
+              sudo systemctl start containerd
 
     - name: Create a kube repo file
       file:
@@ -54,4 +58,13 @@
     - name: install kubectl kubelet and kubeadm 
       shell: |
               sudo yum install -y kubelet-{{ version }} kubeadm-{{ version }} kubectl-{{ version }}
+      state: present
+
+    - name: enable and start kubelet
+      shell: |
+              sudo systemctl enable kubelet
+              sudo systemctl start kubelet
+
+
+
      

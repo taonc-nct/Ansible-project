@@ -1,6 +1,8 @@
 ---
 #- hosts: "masters, workers"
 - hosts: all
+  name: set up dependencies for all node
+  remote_user: root
   become: yes
   connection: ssh
   vars: 
@@ -65,6 +67,143 @@
               sudo systemctl enable kubelet
               sudo systemctl start kubelet
 
+---
+- hosts: masters
+  name: Init cluster and join masters
+  remote_user: root
+  become: yes
+  connection: ssh
+  vars: 
+      # ip lb
+    - control_plane_endpoint: "10.101.50.131:6443"
+    
+      # ip node Present(node master1)
+    - apiserver_advertise_address: "10.101.50.128"
 
+      # pod_cidr(calico recomment) 
+    - pod_cidr: "192.168.0.0/16"
 
-     
+  tasks:
+    - name: Reset existing cluster
+      shell: kubeadm reset -f
+
+    - name: Remove .kube in user home directory
+      shell: rm -rf .kube
+
+    - name: Remove /etc/kubernetes/manifests directory
+      shell: rm -rf /etc/kubernetes/manifests
+
+    - name: Remove /var/lib/etcd directory
+      shell: rm -rf /var/lib/etcd
+
+    - name: Init kubernetes cluster
+      shell: kubeadm init --control-plane-endpoint={{ control_plane_endpoint }} --upload-certs --apiserver_advertise_address={{ apiserver-advertise-address }} --pod-network-cidr=10.244.0.0/16
+      run_once: yes
+      delegate_to: "{{ apiserver-advertise-address }}"
+
+#     - name: Copy kube-flannel-v0.16.3.yml
+#       copy:
+#         src: ../kube-flannel-v0.16.3.yml
+#         dest: /home/ci/kube-flannel-v0.16.3.yml
+#         owner: ci
+#         group: ci
+#         mode: '0644'
+#       when: inventory_hostname == "172.16.1.11"
+
+#     - name: Deploy Flannel network
+#       shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f kube-flannel-v0.16.3.yml
+#       run_once: yes
+#       delegate_to: "172.16.1.11"
+
+#     - name: Print join command
+#       shell: kubeadm token create --print-join-command
+#       register: kubernetes_join_command
+#       run_once: yes
+#       delegate_to: "172.16.1.11"
+
+#     - name: Copy join command to local
+#       become: no
+#       local_action: copy content="{{ kubernetes_join_command.stdout_lines[0] }}" dest="/tmp/kubernetes_join_command" mode=0777
+#       run_once: yes
+#       delegate_to: "172.16.1.11"
+
+#     - name: Generate certificate key
+#       shell: kubeadm init phase upload-certs --upload-certs
+#       register: kubernetes_certificate_key
+#       run_once: yes
+#       delegate_to: "172.16.1.11"
+
+#     - name: Execute master join command
+#       become: yes
+#       when: inventory_hostname != "172.16.1.11"
+#       shell: "{{ kubernetes_join_command.stdout_lines[0] }} --control-plane --certificate-key {{ kubernetes_certificate_key.stdout_lines[2] }} --apiserver-advertise-address={{ inventory_hostname }}"
+
+#     # This got updated after the video
+#     # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+#     - name: Edit kubeadm.conf
+#       blockinfile:
+#         path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+#         block: |
+#           Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+#     - name: Restart kubelet service
+#       service:
+#         name: kubelet
+#         daemon-reload: yes
+#         state: restarted
+
+#     - name: Create directory for kube config
+#       file:
+#         path: /home/ci/.kube
+#         state: directory
+#         owner: ci
+#         group: ci
+#         mode: 0755
+
+#     - name: Copy /etc/kubernetes/admin.conf to user home directory
+#       become_user: root
+#       become_method: sudo
+#       become: yes
+#       copy:
+#         src: /etc/kubernetes/admin.conf
+#         dest: /home/ci/.kube/config
+#         remote_src: yes
+#         owner: ci
+#         group: ci
+#         mode: '0644'
+
+# - hosts: workers
+#   name: Join workers
+#   remote_user: ci
+#   become: yes
+#   tasks:
+#     - name: Reset existing cluster
+#       shell: kubeadm reset -f
+
+#     - name: Remove .kube in user home directory
+#       shell: rm -rf .kube
+
+#     - name: Remove /etc/kubernetes/manifests directory
+#       shell: rm -rf /etc/kubernetes/manifests
+
+#     - name: Copy join command to workers
+#       copy:
+#         src: /tmp/kubernetes_join_command
+#         dest: /tmp/kubernetes_join_command
+#         mode: 0777
+
+#     - name: Execute worker join command
+#       shell: sh /tmp/kubernetes_join_command
+
+#     # This got updated after the video
+#     # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+#     - name: Edit kubeadm.conf
+#       blockinfile:
+#         path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+#         block: |
+#           Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+#     - name: Restart kubelet service
+#       service:
+#         name: kubelet
+#         daemon-reload: yes

@@ -4,7 +4,7 @@
   become: yes
   vars: 
     - master1: "masters1 160.100.100.180:6443 "
-    - master2: "master2 168.100.100.180"
+    - master2: "master2 168.100.100.181:6443"
     - version: "1.27.2"
   tasks:
     - name: Install haproxy

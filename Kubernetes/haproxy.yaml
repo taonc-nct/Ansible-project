@@ -1,7 +1,11 @@
 ---
-- hosts: lb
+- hosts: haproxy
   name: Setup load balancers
   become: yes
+  vars: 
+    - master1: "masters1 160.100.100.180:6443 "
+    - master2: "master2 168.100.100.180"
+    - version: "1.27.2"
   tasks:
     - name: Install haproxy
       yum :
@@ -34,8 +38,7 @@
                 mode tcp
                 option ssl-hello-chk
                 balance roundrobin
-                  server vm1 172.16.240.128:6443 check fall 3 rise 2
-                  server vm2 172.16.240.129:6443 check fall 3 rise 2
+                  server {{ master1 }} check fall 3 rise 2
               EOF
 
     - name: Restart haproxy

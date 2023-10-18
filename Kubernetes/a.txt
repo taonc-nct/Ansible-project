@@ -1,0 +1,219 @@
+---
+#- hosts: "masters, workers"
+- hosts: all
+  name: set up dependencies for all node
+  remote_user: root
+  become: yes
+  vars: 
+    - repo_url: "https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64"
+    - repo_key: "https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg"
+    - version: "1.27.2"
+  tasks:
+    - name: disabling swap as it’s required for kubelet
+      shell: |
+              sudo swapoff -a
+              sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+    - name: Load br_netfilter module
+      shell: |
+              cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+              br_netfilter
+              EOF
+
+    - name: Configure iptables to see bridged traffic
+      shell: |
+              cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+              net.bridge.bridge-nf-call-ip6tables = 1
+              net.bridge.bridge-nf-call-iptables = 1
+              EOF
+
+    - name: Read values from all system directories
+      shell: sysctl --system
+
+    - name: installing containerd and settings its config.
+      shell: |
+              sudo yum install -y yum-utils device-mapper-persistent-data lvm2
+              sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+              sudo yum update -y && yum install -y containerd.io
+              sudo mkdir -p /etc/containerd
+              sudo containerd config default > /etc/containerd/config.toml
+
+    - name: restart and start containerd
+      shell: |
+              sudo systemctl enable containerd
+              sudo systemctl start containerd
+
+    - name: Create a kube repo file
+      file:
+        path: "/etc/yum.repos.d/kubernetes.repo"
+        state: "touch"
+
+    - name: add Kubernetes' YUM repository
+      yum_repository:
+        name: Kubernetes
+        description: Kubernetes YUM repository
+        baseurl: "{{ repo_url }}"
+        gpgkey:  "{{ repo_key }}"
+        gpgcheck: yes  
+
+    - name: install kubectl kubelet and kubeadm 
+      shell: |
+              sudo yum install -y kubelet-{{ version }} kubeadm-{{ version }} kubectl-{{ version }}
+      state: present
+
+    - name: enable and start kubelet
+      shell: |
+              sudo systemctl enable kubelet
+              sudo systemctl start kubelet
+---
+- hosts: masters
+  name: Init cluster and join masters
+  remote_user: root
+  become: yes
+  connection: ssh
+  vars: 
+      # ip lb
+    - control_plane_endpoint: "10.101.50.141:6443"
+    
+      # ip node Present(node master1)
+    - apiserver_advertise_address: "10.101.50.141"
+
+      # pod_cidr(calico recomment) 
+    - pod_cidr: "192.168.0.0/16"
+
+  tasks:
+    - name: Reset existing cluster
+      shell: kubeadm reset -f
+
+    - name: Remove .kube in user home directory
+      shell: rm -rf .kube
+
+    - name: Remove /etc/kubernetes/manifests directory
+      shell: rm -rf /etc/kubernetes/manifests
+
+    - name: Remove /var/lib/etcd directory
+      shell: rm -rf /var/lib/etcd
+
+    - name: Init kubernetes cluster
+      shell: kubeadm init --apiserver_advertise_address={{ apiserver-advertise-address }} --pod-network-cidr={{ pod_cidr }}
+      run_once: yes
+      delegate_to: "{{ apiserver-advertise-address }}"
+
+    # - name: Init kubernetes cluster
+    #   shell: kubeadm init --control-plane-endpoint={{ control_plane_endpoint }} --upload-certs --apiserver_advertise_address={{ apiserver-advertise-address }} --pod-network-cidr=10.244.0.0/16
+    #   run_once: yes
+    #   delegate_to: "{{ apiserver-advertise-address }}"
+    - name: Download calico.yaml
+      shell: curl https://raw.githubusercontent.com/projectcalico/calico/v3.26.3/manifests/calico.yaml -O
+      when: inventory_hostname == {{ apiserver-advertise-address }}"
+
+    - name: Start using cluster
+      shell: |
+              mkdir -p $HOME/.kube
+              sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+              sudo chown $(id -u):$(id -g) $HOME/.kube/config
+      delegate_to: "{{ apiserver-advertise-address }}"
+
+    - name: Export KUBECONFIG
+      shell: |
+              KUBECONFIG=/etc/kubernetes/admin.conf
+      delegate_to: "{{ apiserver-advertise-address }}"
+
+    - name: Deploy calico network
+      shell: kubectl apply -f calico.yaml
+      run_once: yes
+      delegate_to: "{{ apiserver-advertise-address }}"
+
+    - name: Print join command
+      shell: kubeadm token create --print-join-command
+      register: kubernetes_join_command
+      run_once: yes
+      delegate_to: "{{ apiserver-advertise-address }}"
+
+    - name: Copy join command to local
+      become: no
+      local_action: copy content="{{ kubernetes_join_command.stdout_lines[0] }}" dest="/tmp/kubernetes_join_command" mode=0777
+      run_once: yes
+      delegate_to: "{{ apiserver-advertise-address }}"
+
+    # - name: Generate certificate key
+    #   shell: kubeadm init phase upload-certs --upload-certs
+    #   register: kubernetes_certificate_key
+    #   run_once: yes
+    #   delegate_to: "{{ apiserver-advertise-address }}"
+
+    # - name: Execute master join command
+    #   become: yes
+    #   when: inventory_hostname != "172.16.1.11"
+    #   shell: "{{ kubernetes_join_command.stdout_lines[0] }} --control-plane --certificate-key {{ kubernetes_certificate_key.stdout_lines[2] }} --apiserver-advertise-address={{ inventory_hostname }}"
+
+#     # This got updated after the video
+#     # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+#     - name: Edit kubeadm.conf
+#       blockinfile:
+#         path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+#         block: |
+#           Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+#     - name: Restart kubelet service
+#       service:
+#         name: kubelet
+#         daemon-reload: yes
+#         state: restarted
+
+#     - name: Create directory for kube config
+#       file:
+#         path: /home/ci/.kube
+#         state: directory
+#         owner: ci
+#         group: ci
+#         mode: 0755
+
+#     - name: Copy /etc/kubernetes/admin.conf to user home directory
+#       become_user: root
+#       become_method: sudo
+#       become: yes
+#       copy:
+#         src: /etc/kubernetes/admin.conf
+#         dest: /home/ci/.kube/config
+#         remote_src: yes
+#         owner: ci
+#         group: ci
+#         mode: '0644'
+
+---
+- hosts: workers
+  name: Join workers
+  remote_user: root
+  become: yes
+  tasks:
+    - name: Reset existing cluster
+      shell: kubeadm reset -f
+
+    - name: Remove .kube in user home directory
+      shell: rm -rf .kube
+
+    - name: Remove /etc/kubernetes/manifests directory
+      shell: rm -rf /etc/kubernetes/manifests
+
+    - name: Copy join command to workers
+      copy:
+        src: /tmp/kubernetes_join_command
+        dest: /tmp/kubernetes_join_command
+        mode: 0777
+
+    - name: Execute worker join command
+      shell: sh /tmp/kubernetes_join_command
+
+    # This got updated after the video
+    # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+    # - name: Edit kubeadm.conf
+    #   blockinfile:
+    #     path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+    #     block: |
+    #       Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes

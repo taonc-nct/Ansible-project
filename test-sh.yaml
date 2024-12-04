@@ -1,8 +1,0 @@
-# go-installation-playbook.yml
----
-- name: Play- golang installation
-  hosts: linux
-  become: yes
-  tasks:
-    - name: Run a script with arguments (free form)
-      ansible.builtin.script: /etc/ansible/etcd.sh

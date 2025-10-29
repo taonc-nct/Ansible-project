@@ -43,3 +43,12 @@ registry_password: "SuperSecretPassword"
 # Optional TLS config
 registry_tls_skip_verify: false        # true nếu registry dùng HTTP
 registry_ca_cert: "files/ca.crt"       # đường dẫn file cert nội bộ (nếu có)
+
+# /etc/rancher/rke2/config.yaml
+disable:
+  - rke2-coredns
+  - rke2-ingress-nginx
+  - rke2-metrics-server
+  - rke2-snapshot-controller
+  - rke2-snapshot-controller-crd
+  - rke2-snapshot-validation-webhook

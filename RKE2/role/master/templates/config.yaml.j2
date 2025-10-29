@@ -12,6 +12,10 @@ node-ip:
   - {{ ansible_ssh_host }}
 cluster-cidr: {{ cluster_cidr }}
 service-cidr: {{ service_cidr }}
+disable:
+  - rke2-snapshot-controller
+  - rke2-snapshot-controller-crd
+  - rke2-snapshot-validation-webhook
 system-default-registry: {{ system_default_registry }}
 {% else %}
 server: {{ hostvars[primary_master].master_url }}
@@ -28,5 +32,9 @@ node-ip:
   - {{ ansible_ssh_host }}
 cluster-cidr: {{ cluster_cidr }}
 service-cidr: {{ service_cidr }}
+disable:
+  - rke2-snapshot-controller
+  - rke2-snapshot-controller-crd
+  - rke2-snapshot-validation-webhook
 system-default-registry: {{ system_default_registry }}
 {% endif %}

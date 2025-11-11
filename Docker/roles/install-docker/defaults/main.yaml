@@ -1,0 +1,13 @@
+---
+docker_package_dir: /home/taonc/docker-package
+docker_user: taonc
+docker_daemon_file: /etc/docker/daemon.json
+docker_graph_path: /app/docker
+docker_log_max_size: "10m"
+docker_group_user: root
+docker_compose_src: /home/taonc/docker-package/docker-compose-linux-x86_64
+docker_compose_dest: /usr/local/bin/docker-compose
+ulimit_file: /etc/security/limits.d/90-custom.conf
+ulimit_soft: 102400
+ulimit_hard: 102400
+docker_user: taonc

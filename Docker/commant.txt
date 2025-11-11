@@ -1,0 +1,5 @@
+docker run --rm -it --mount type=bind,source="$(pwd)"/,dst=/kubespray/inventory/ quay.io/kubespray/kubespray:v2.29.0 bash
+
+ansible-playbook -i /inventory/inventory.ini --private-key /root/.ssh/id_rsa cluster.yml
+
+ansible-playbook -i inventory.ini docker-install.yaml -v

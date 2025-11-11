@@ -1,0 +1,99 @@
+---
+- name: Ensure target directory exists
+  file:
+    path: "{{ docker_package_dir }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: '0755'
+
+- name: Ensure all .deb files are readable
+  file:
+    path: "{{ item }}"
+    mode: '0644'
+  loop: "{{ lookup('fileglob', docker_package_dir + '/*.deb', wantlist=True) }}"
+
+- name: Install packages offline
+  shell: dpkg -i {{ docker_package_dir }}/*.deb
+  become: true
+
+- name: Ensure /etc/docker directory exists
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+- name: Create or update /etc/docker/daemon.json
+  copy:
+    dest: "{{ docker_daemon_file }}"
+    content: |
+      {
+         "storage-driver": "overlay2",
+         "data-root": "{{ docker_graph_path }}",
+         "log-opts": {
+            "max-size": "{{ docker_log_max_size }}"
+         }
+      }
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure user is in docker group
+  user:
+    name: "{{ docker_group_user }}"
+    groups: docker
+    append: yes
+
+- name: Restart Docker service
+  become: true
+  service:
+    name: docker
+    state: restarted
+
+- name: Get Docker version
+  command: docker --version
+  register: docker_version
+  ignore_errors: yes
+
+- name: Show Docker version
+  debug:
+    msg: "{{ inventory_hostname }}: {{ docker_version.stdout | default('Docker not installed') }}"
+
+- name: Ensure ulimit file exists
+  copy:
+    dest: "{{ ulimit_file }}"
+    content: |
+      {{ docker_user }} soft nofile {{ ulimit_soft }}
+      {{ docker_user }} hard nofile {{ ulimit_hard }}
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Verify ulimit
+  shell: "ulimit -n"
+  register: ulimit_result
+  ignore_errors: yes
+
+- debug:
+    msg: "Current max open files: {{ ulimit_result.stdout }}"
+
+- name: Copy Docker Compose binary to /usr/local/bin
+  copy:
+    src: "{{ docker_compose_src }}"
+    dest: "{{ docker_compose_dest }}"
+    mode: '0755'
+    remote_src: yes   #  Bắt buộc thêm dòng này
+- name: Create symlink for docker-compose
+  file:
+    src: "{{ docker_compose_dest }}"
+    dest: /usr/bin/docker-compose
+    state: link
+    force: yes
+
+- name: Verify Docker Compose version
+  command: docker-compose --version
+  register: compose_version
+  ignore_errors: yes
+
+- debug:
+    msg: "Docker Compose version: {{ compose_version.stdout | default('Docker Compose not installed') }}"
